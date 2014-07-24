@@ -1804,7 +1804,7 @@
                           stx (or delim (car left))))
     (check-each prods delim? "expected production")
     (cons names prods))
-  (define parsed (map parse-non-terminal (syntax->list nt-defs)))
+  (define parsed (map parse-non-terminal nt-defs))
   (define defs (make-hash))
   (for ([p parsed])
     (define ns (car p))
@@ -1816,19 +1816,29 @@
           (hash-set! defs (syntax-e n) n))))
   parsed)
 
+(define-for-syntax (split-def-lang-defs defs)
+  (let process-defs [(rest-defs (syntax->list defs))
+                     (nt-defs '())]
+    (if (empty? rest-defs)
+        (values nt-defs '())
+        (syntax-case (car rest-defs) ()
+          [#:binding-forms (values nt-defs (cdr rest-defs))]
+          [anything (process-defs (cdr rest-defs) (cons (car rest-defs) nt-defs))]))))
+
 (define-syntax (define-language stx)
   (not-expression-context stx)
   (syntax-case stx ()
-    [(form-name lang-name . nt-defs)
+    [(form-name lang-name . defs)
      (begin
        (unless (identifier? #'lang-name)
-         (raise-syntax-error #f "expected an identifier" stx #'lang-name))
+               (raise-syntax-error #f "expected an identifier" stx #'lang-name))
+       (define-values (nt-defs bf-defs) (split-def-lang-defs #'defs))
        (with-syntax ([(define-language-name) (generate-temporaries #'(lang-name))])
-         (define non-terms (parse-non-terminals #'nt-defs stx))
+         (define non-terms (parse-non-terminals nt-defs stx))
          (with-syntax ([((names prods ...) ...) non-terms]
                        [(all-names ...) (apply append (map car non-terms))]
                        [(nt-ids ...) 
-                        (for/list ([nt-def (in-list (syntax->list #'nt-defs))])
+                        (for/list ([nt-def (in-list nt-defs)])
                           (syntax-case nt-def ()
                             [(x . whatever) #'x]))])
            (with-syntax ([bindings
@@ -1854,7 +1864,7 @@
                        (syntax-case stx (set!)
                          [(set! x e) (raise-syntax-error (syntax-e #'form-name) "cannot set! identifier" stx #'e)]
                          [(x e (... ...))
-                          #'(define-language-name e (... ...))]
+                          #'(term e (... ...) #:lang lang-name)]
                          [x 
                           (identifier? #'x)
                           #'define-language-name]))
@@ -1941,14 +1951,15 @@
 
 (define-syntax (define-extended-language stx)
   (syntax-case stx ()
-    [(_ name orig-lang . nt-defs)
+    [(_ name orig-lang . defs)
      (begin
        (unless (identifier? (syntax name))
          (raise-syntax-error 'define-extended-language "expected an identifier" stx #'name))
        (unless (identifier? (syntax orig-lang))
          (raise-syntax-error 'define-extended-language "expected an identifier" stx #'orig-lang))
+       (define-values (nt-defs bf-defs) (split-def-lang-defs #'defs))
        (let ([old-names (language-id-nts #'orig-lang 'define-extended-language)]
-             [non-terms (parse-non-terminals #'nt-defs stx)])
+             [non-terms (parse-non-terminals nt-defs stx)])
          (with-syntax ([((names prods ...) ...) non-terms]
                        [(all-names ...)
                         ;; The names may have duplicates if the extended language
@@ -1969,7 +1980,8 @@
                    (λ (stx)
                      (syntax-case stx (set!)
                        [(set! x e) (raise-syntax-error 'define-extended-language "cannot set! identifier" stx #'e)]
-                       [(x e (... ...)) #'(define-language-name e (... ...))]
+                       [(x e (... ...))
+                        #'(term e (... ...) #:lang lang-name)]
                        [x 
                         (identifier? #'x)
                         #'define-language-name]))
