@@ -1872,7 +1872,9 @@
                      '(all-names ...)
                      (to-table #'(nt-ids ...)))))
                  (define define-language-name
-                   #,(syntax/loc stx (language form-name lang-name (all-names ...) (names prods ...) ...)))))))))]))
+                   #,(syntax/loc stx (language form-name lang-name (all-names ...)
+                                               #,bf-defs
+                                               (names prods ...) ...)))))))))]))
 
 (define-for-syntax (to-table x)
   (for/hash ([id (in-list (syntax->list x))])
@@ -1882,7 +1884,7 @@
   
 (define-syntax (language stx)
   (syntax-case stx ()
-    [(_ form-name lang-id (all-names ...) (name rhs ...) ...)
+    [(_ form-name lang-id (all-names ...) (binding-forms ...) (name rhs ...) ...)
      (prune-syntax
       (let ()
         (let ([all-names (syntax->list #'(all-names ...))])
@@ -1947,7 +1949,8 @@
                   (compile-language (list (list '(uniform-names ...) rhs/lw ...) ...)
                                     (list (make-nt 'first-names (list (make-rhs `r-rhs) ...)) ...
                                           (make-nt 'new-name (list (make-rhs '(nt orig-name)))) ...)
-                                    (mk-uf-sets '((uniform-names ...) ...))))))))))]))
+                                    (mk-uf-sets '((uniform-names ...) ...))
+                                    '(binding-forms ...)))))))))]))
 
 
 (define-syntax (define-extended-language stx)
@@ -1974,7 +1977,7 @@
                              (eq? n1 n2))))]
                        [(define-language-name) (generate-temporaries #'(name))])
            #'(begin
-               (define define-language-name (extend-language orig-lang (all-names ...) (names prods ...) ...))
+               (define define-language-name (extend-language orig-lang (all-names ...) (#,bg-defs) (names prods ...) ...))
                (define-syntax name
                  (make-set!-transformer
                   (make-language-id
@@ -1991,7 +1994,7 @@
 
 (define-syntax (extend-language stx)
   (syntax-case stx ()
-    [(_ lang (all-names ...) (name rhs ...) ...)
+    [(_ lang (all-names ...) (binding-forms ...) (name rhs ...) ...)
      (with-syntax ([(((r-syncheck-expr r-rhs r-names r-names/ellipses) ...) ...)
                     (map (lambda (rhss) (map (λ (x) (rewrite-side-conditions/check-errs
                                                      (append (language-id-nts #'lang 'define-extended-language)
@@ -2010,14 +2013,15 @@
        (syntax/loc stx
          (do-extend-language (begin r-syncheck-expr ... ... lang)
                              (list (make-nt '(uniform-names ...) (list (make-rhs `r-rhs) ...)) ...)
+                             '(binding-forms ...)
                              (list (list '(uniform-names ...) rhs/lw ...) ...))))]))
 
 (define extend-nt-ellipses '(....))
 
-;; do-extend-language : compiled-lang (listof (listof nt)) ? -> compiled-lang
+;; do-extend-language : compiled-lang (listof (listof nt)) binding-forms ? -> compiled-lang
 ;; note: the nts that come here are an abuse of the `nt' struct; they have
 ;; lists of symbols in the nt-name field.
-(define (do-extend-language old-lang new-nts new-pict-infos)
+(define (do-extend-language old-lang new-nts binding-forms new-pict-infos)
   (unless (compiled-lang? old-lang)
     (error 'define-extended-language "expected a language as first argument, got ~e" old-lang))
   
@@ -2094,7 +2098,8 @@
     (compile-language (vector (compiled-lang-pict-builder old-lang)
                               new-pict-infos)
                       (hash-map new-ht (λ (x y) y))
-                      (compiled-lang-nt-map old-lang))))
+                      (compiled-lang-nt-map old-lang)
+                      binding-forms #|PS: append in the old language's b-fs|#)))
 
 (define-syntax (define-union-language stx)
   (syntax-case stx ()
@@ -2204,10 +2209,12 @@
       (hash-set! names-table 
                  name
                  (set-union new-rhses (hash-ref names-table name (set))))))
+
+  
   
   (compile-language #f
                     (hash-map names-table (λ (name set) (make-nt name (set->list set))))
-                    new-nt-map))
+                    new-nt-map '(#|PS: actually unify the binding forms|#)))
 
 
 ;; find-primary-nt : symbol lang -> symbol or #f
