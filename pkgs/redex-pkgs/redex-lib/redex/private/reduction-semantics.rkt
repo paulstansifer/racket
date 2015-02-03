@@ -10,6 +10,7 @@
          "term-fn.rkt"
          "search.rkt"
          "lang-struct.rkt"
+         (only-in "binding-forms.rkt" binding-info->freshener)
          (for-syntax "cycle-check.rkt"
                      setup/path-to-relative)
          racket/trace
@@ -17,7 +18,8 @@
          racket/list
          racket/set
          data/union-find
-         (rename-in racket/match (match match:)))
+         (rename-in racket/match (match match:))
+         )
 
 (require (for-syntax syntax/name
                      "loc-wrapper-ct.rkt"
@@ -1833,7 +1835,7 @@
      (begin
        (unless (identifier? #'lang-name)
                (raise-syntax-error #f "expected an identifier" stx #'lang-name))
-       (define-values (nt-defs bf-defs) (split-def-lang-defs #'defs))
+       (define-values (nt-defs bf-defs-val) (split-def-lang-defs #'defs))
        (with-syntax ([(define-language-name) (generate-temporaries #'(lang-name))])
          (define non-terms (parse-non-terminals nt-defs stx))
          (with-syntax ([((names prods ...) ...) non-terms]
@@ -1853,7 +1855,8 @@
                                (loop (cdr nt-ids)
                                      (syntax-property stx
                                                       'disappeared-binding
-                                                      (if old (cons new old) new)))]))])
+                                                      (if old (cons new old) new)))]))]
+                         [bf-defs bf-defs-val])
                                           
              (quasisyntax/loc stx
                (begin
@@ -1873,7 +1876,7 @@
                      (to-table #'(nt-ids ...)))))
                  (define define-language-name
                    #,(syntax/loc stx (language form-name lang-name (all-names ...)
-                                               #,bf-defs
+                                               bf-defs
                                                (names prods ...) ...)))))))))]))
 
 (define-for-syntax (to-table x)
@@ -1934,7 +1937,10 @@
                                        (let ([l (syntax->list name-stx)])
                                          (map (λ (x) (list x (car l)))
                                               (cdr l)))))
-                                 (syntax->list #'(name ...))))])
+                                 (syntax->list #'(name ...))))]
+                          [freshener (binding-info->freshener
+                                      #'(binding-forms ...) #'lang-id
+                                      #'redex-let* #'term-match/single)])
               
               ;; note: when there are multiple names for a single non-terminal,
               ;; we build equivalent non-terminals by redirecting all except the
@@ -1950,7 +1956,7 @@
                                     (list (make-nt 'first-names (list (make-rhs `r-rhs) ...)) ...
                                           (make-nt 'new-name (list (make-rhs '(nt orig-name)))) ...)
                                     (mk-uf-sets '((uniform-names ...) ...))
-                                    '(binding-forms ...)))))))))]))
+                                    freshener))))))))]))
 
 
 (define-syntax (define-extended-language stx)
@@ -2101,7 +2107,7 @@
                               new-pict-infos)
                       (hash-map new-ht (λ (x y) y))
                       (compiled-lang-nt-map old-lang)
-                      binding-forms #|PS: append in the old language's b-fs|#)))
+                      (lambda (x) x) #|PS: combine the two sets of binding forms|#)))
 
 (define-syntax (define-union-language stx)
   (syntax-case stx ()
@@ -2216,7 +2222,7 @@
   
   (compile-language #f
                     (hash-map names-table (λ (name set) (make-nt name (set->list set))))
-                    new-nt-map '(#|PS: actually unify the binding forms|#)))
+                    new-nt-map (lambda (x) x) #|PS: actually unify the binding forms|#))
 
 
 ;; find-primary-nt : symbol lang -> symbol or #f
